@@ -2,81 +2,71 @@ import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
 import { toNano } from '@ton/core';
 import { FirstContract } from '../wrappers/FirstContract';
 import '@ton/test-utils';
+import { BulkAdder } from '../wrappers/BulkAdder';
 
 describe('FirstContract', () => {
     let blockchain: Blockchain;
     let deployer: SandboxContract<TreasuryContract>;
     let firstContract: SandboxContract<FirstContract>;
+    let bulkContract: SandboxContract<BulkAdder>;
 
     beforeEach(async () => {
         blockchain = await Blockchain.create();
 
-        firstContract = blockchain.openContract(await FirstContract.fromInit(0n));
+        firstContract = blockchain.openContract(await FirstContract.fromInit(12981424n));
+        bulkContract = blockchain.openContract(await BulkAdder.fromInit());
 
         deployer = await blockchain.treasury('deployer');
 
-        const deployResult = await firstContract.send(
+        const deployResultFirst = await firstContract.send(
             deployer.getSender(),
             {
-                value: toNano('0.05'),
+                value: toNano('0.02'),
             },
             {
                 $$type: 'Deploy',
                 queryId: 0n,
-            }
+            },
         );
-
-        expect(deployResult.transactions).toHaveTransaction({
+        expect(deployResultFirst.transactions).toHaveTransaction({
             from: deployer.address,
             to: firstContract.address,
             deploy: true,
             success: true,
         });
+        const deployResultBulk = await bulkContract.send(
+            deployer.getSender(),
+            {
+                value: toNano('0.02'),
+            },
+            {
+                $$type: 'Deploy',
+                queryId: 1n,
+            },
+        );
+        expect(deployResultBulk.transactions).toHaveTransaction({
+            from: deployer.address,
+            to: bulkContract.address,
+            deploy: true,
+            success: true,
+        });
     });
 
-    it('should deploy', async () => {
-        // the check is done inside beforeEach
-        // blockchain and firstContract are ready to use
-    });
+    it('should increnment to target', async () => {
+        const target = 3n;
+        const increaseResult = await bulkContract.send(
+            deployer.getSender(),
+            {
+                value: toNano('0.5'),
+            },
+            {
+                $$type: 'Query',
+                target,
+                recipient: firstContract.address,
+            },
+        );
+        const count = await firstContract.getCounter();
 
-    it('should increase counter', async () => {
-        const increaseTimes = 3;
-        for (let i = 0; i < increaseTimes; i++) {
-            console.log(`increase ${i + 1}/${increaseTimes}`);
-
-            const increaser = await blockchain.treasury('increaser' + i);
-
-            const counterBefore = await firstContract.getCounter();
-
-            console.log('counter before increasing', counterBefore);
-
-            const increaseBy = BigInt(Math.floor(Math.random() * 100));
-
-            console.log('increasing by', increaseBy);
-
-            const increaseResult = await firstContract.send(
-                increaser.getSender(),
-                {
-                    value: toNano('0.05'),
-                },
-                {
-                    $$type: 'Add',
-                    queryId: 0n,
-                    amount: increaseBy,
-                }
-            );
-
-            expect(increaseResult.transactions).toHaveTransaction({
-                from: increaser.address,
-                to: firstContract.address,
-                success: true,
-            });
-
-            const counterAfter = await firstContract.getCounter();
-
-            console.log('counter after increasing', counterAfter);
-
-            expect(counterAfter).toBe(counterBefore + increaseBy);
-        }
+        expect(count).toEqual(target);
     });
 });
